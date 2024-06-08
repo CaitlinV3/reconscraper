@@ -1,8 +1,10 @@
 from urllib import response
+from urllib.parse import urlparse
 import requests
 import csv
 import re
 import sys
+import dns.resolver
 from bs4 import BeautifulSoup
 
 output_file = 'scraping.csv'
@@ -26,6 +28,37 @@ if __name__ == '__main__':
 
 response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/36.0.1941.0 Safari/537.36'})
 
+def check_cname(subdomain):
+    try:
+        result = dns.resolver.resolve(subdomain, 'CNAME')
+        for cname in result:
+            return cname.target.to_text()
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.Timeout, dns.name.LabelTooLong):
+        #print(f"Label too long for {subdomain}")
+        result = None
+    return result
+    
+cloud_patterns = [
+    r'aws.amazon.com',
+    r'azure.com',
+    r'cloudfront.net',
+    r'herokuapp.com',
+    r'pages.github.com',
+    r'pages.dev',
+    r'firebaseapp.com',
+    r'azurewebsites.net',
+    r'digitaloceanspaces.com',
+    r'awsstatic.com',
+    r'azureedge.net',
+    r'storage.googleapis.com',
+    r'cloudflare.com',
+    r'cloudapp.net',
+    r'cloudapp.azure.com',
+    r'myshopify.com',
+    r'shopify.com',
+    r's3.amazonaws.com'
+]
+
 if response.status_code == 200:
     print('Success!')
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -43,8 +76,20 @@ if response.status_code == 200:
 
         links = soup.find_all('a', href=True)
         for link in links:
+            href = link['href']
             print(f"Link: {link['href']}")
-            writer.writerow([f"Link: {link['href']}"])
+            writer.writerow(['Link', href])
+
+            parsed_url = urlparse(href)
+            domain = parsed_url.netloc
+
+            if domain:
+                cname = check_cname(domain)
+                if cname:
+                    for pattern in cloud_patterns:
+                        if re.search(pattern, cname):
+                            writer.writerow(['**CNAME Record**', f"{domain} -> {cname} (Potential cloud service)"])
+                            break
 
         print("-----------------------------")
         print("Meta Tags")
@@ -143,7 +188,7 @@ if response.status_code == 200:
         for tech in technologies:
             print(tech)
             writer.writerow([tech])
-                
+
 else:
     print(f'An error has occurred. {response.status_code}')
 
